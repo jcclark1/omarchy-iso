@@ -731,7 +731,10 @@ def _unmask_mkinitcpio_pacman_hooks(
 def _runtime_package_list(ctx: InstallContext) -> list[str]:
     """Selected Omarchy runtime package + every package in the ISO-bundled
     base package list that isn't already installed early."""
-    base_pkgs_file = Path("/usr/share/omarchy-iso/omarchy-base.packages")
+    if ctx.profile == "server":
+        base_pkgs_file = Path("/usr/share/omarchy-iso/omarchy-server.packages")
+    else:
+        base_pkgs_file = Path("/usr/share/omarchy-iso/omarchy-base.packages")
     pkgs = [_omarchy_runtime_package()]
     already_installed = set(_early_packages()) | {
         _omarchy_runtime_package(),
@@ -1134,7 +1137,18 @@ def _run_target_setup_command(ctx: InstallContext, cmd: list[str], *, user: str 
                 pass
 
 
+def _write_profile_marker(ctx: InstallContext) -> None:
+    """Persist the install profile so omarchy-apply-system (and first-boot user
+    provisioning) take the server path. Read by install/helpers/profile.sh."""
+    marker = ctx.target / "etc/omarchy/profile"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(ctx.profile + "\n")
+
+
 def run_system_finalizer(ctx: InstallContext) -> None:
+    if ctx.profile == "server":
+        _write_profile_marker(ctx)
+
     if ctx.defer_provisioning:
         cmd = ["/usr/bin/omarchy-apply-system", "--defer-provisioning", "--first-install"]
     else:

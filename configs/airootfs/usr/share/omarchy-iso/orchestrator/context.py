@@ -27,6 +27,7 @@ class InstallContext:
     arch_config_path: Path
     omarchy_install: dict[str, Any]
     defer_provisioning: bool = False
+    profile: str = "desktop"
 
     target: Path = Path("/mnt")
     omarchy_path: Path = Path("/usr/share/omarchy")
@@ -50,11 +51,19 @@ class InstallContext:
         user_configuration = json.loads(config_path.read_text())
         omarchy_install = user_configuration.get("omarchy_install") or _default_omarchy_install(user_configuration)
 
+        # The install profile: "server" for a headless build (no desktop
+        # session/packages), else "desktop". A config/cidata value wins; failing
+        # that the ISO's baked marker decides; the default is desktop.
+        profile = _resolve_profile(omarchy_install)
+        omarchy_install["profile"] = profile
+
         # Autoinstall configs may omit kernels, which makes archinstall default
         # to stock linux. Apply the same hardware default as the configurator,
         # while honoring an explicit selection (including storage-only configs).
+        # The server profile defaults to the stock kernel, not linux-omarchy,
+        # which the server mirror does not carry.
         if not user_configuration.get("kernels"):
-            kernel = (omarchy_install.get("storage") or {}).get("kernel") or _default_kernel()
+            kernel = (omarchy_install.get("storage") or {}).get("kernel") or _default_kernel(profile=profile)
             user_configuration["kernels"] = [kernel]
 
         # Deferred provisioning: the whole system installs but user creation is deferred to
@@ -121,6 +130,7 @@ class InstallContext:
             arch_config_path=arch_config_path,
             omarchy_install=omarchy_install,
             defer_provisioning=defer_provisioning,
+            profile=profile,
             state_dir=state_dir,
         )
         disk_config = user_configuration.get("disk_config", {})
@@ -182,16 +192,34 @@ def _inject_provisioning_encryption_password(arch_configuration: dict, user_cred
     user_credentials["encryption_password"] = password
 
 
-def _default_kernel(pci_devices: Path = Path("/sys/bus/pci/devices")) -> str:
+def _resolve_profile(
+    omarchy_install: dict[str, Any],
+    marker: Path = Path("/usr/share/omarchy-iso/profile"),
+) -> str:
+    """Resolve the install profile. An explicit config/cidata value wins; else
+    the ISO's baked marker (written by the --headless build) decides; else the
+    default desktop profile. Only "server" is recognized as non-default."""
+    value = omarchy_install.get("profile")
+    if not value and marker.is_file():
+        value = marker.read_text().strip()
+    return "server" if value == "server" else "desktop"
+
+
+def _default_kernel(
+    pci_devices: Path = Path("/sys/bus/pci/devices"),
+    *,
+    profile: str = "desktop",
+) -> str:
     for device in pci_devices.glob("*"):
         try:
             vendor = (device / "vendor").read_text().strip().lower()
             device_id = (device / "device").read_text().strip().lower()
         except OSError:
             continue
+        # T2 Macs need linux-t2 to boot at all, regardless of profile.
         if vendor == "0x106b" and device_id in {"0x1801", "0x1802"}:
             return "linux-t2"
-    return "linux-omarchy"
+    return "linux" if profile == "server" else "linux-omarchy"
 
 
 def _default_omarchy_install(user_configuration: dict) -> dict[str, Any]:

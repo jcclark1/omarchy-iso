@@ -140,6 +140,7 @@ sed -i -E '/^(linux|broadcom-wl)$/d' "$build_cache_dir/packages.x86_64"
 # pulls the published omarchy* from the network mirror like any other package.
 if [[ -d /omarchy-source ]]; then
   base_pkg_lists=(/omarchy-source/install/omarchy-base.packages /omarchy-source/install/omarchy-other.packages)
+  server_pkg_list=/omarchy-source/install/omarchy-server.packages
   setup_form=/omarchy-source/install/provisioning/setup-form.sh
 else
   # Pull the same package lists out of the freshly-downloaded Omarchy runtime
@@ -156,6 +157,9 @@ else
   mkdir -p /tmp/omarchy-pkglists
   bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-base.packages usr/share/omarchy/install/omarchy-other.packages
   base_pkg_lists=(/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-base.packages /tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-other.packages)
+  # Optional: a runtime predating the server profile ships no such file.
+  bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-server.packages 2>/dev/null || true
+  server_pkg_list=/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-server.packages
   # Extracted on its own, tolerating a miss: bsdtar exits non-zero for a member
   # it can't find, so asking for this alongside the package lists would abort the
   # build here (set -e) with a bare "Not found in archive" instead of the
@@ -167,6 +171,23 @@ fi
 mkdir -p "$build_cache_dir/airootfs/usr/share/omarchy-iso"
 cp "${base_pkg_lists[0]}" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
 cp "${base_pkg_lists[1]}" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-other.packages"
+
+# The server profile's package manifest and, for a --headless build, the baked
+# profile marker the installer reads to select it. mirror_pkg_lists carries any
+# extra manifest into the offline mirror so a headless install finds openssh,
+# qemu-guest-agent and the stock kernel that the desktop lists don't name.
+mirror_pkg_lists=("${base_pkg_lists[@]}")
+if [[ -n ${server_pkg_list:-} && -f $server_pkg_list ]]; then
+  cp "$server_pkg_list" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-server.packages"
+  mirror_pkg_lists+=("$server_pkg_list")
+fi
+if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
+  if [[ -z ${server_pkg_list:-} || ! -f $server_pkg_list ]]; then
+    echo "ERROR: --headless needs install/omarchy-server.packages, which this Omarchy source does not ship." >&2
+    exit 1
+  fi
+  printf 'server\n' >"$build_cache_dir/airootfs/usr/share/omarchy-iso/profile"
+fi
 
 # The configurator's setup form comes from the runtime this ISO bundles, so the
 # installer and the first-boot setup that finishes a deferred install can never
@@ -192,7 +213,7 @@ declare -a all_packages
 mapfile -t all_packages < <(
   {
     cat "$build_cache_dir/packages.x86_64"
-    grep -hv '^#\|^$' "${base_pkg_lists[@]}"
+    grep -hv '^#\|^$' "${mirror_pkg_lists[@]}"
     grep -hv '^#\|^$' /builder/archinstall.packages
     # Always include the selected Omarchy packages so the target install can
     # find the runtime and companion packages in the offline mirror.

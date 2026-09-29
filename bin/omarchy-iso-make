@@ -24,6 +24,10 @@ while [[ $# -gt 0 ]]; do
     OMARCHY_INSTALL_DEBUG=1
     shift
     ;;
+  --headless | --server)
+    OMARCHY_PROFILE=server
+    shift
+    ;;
   --edge)
     OMARCHY_ISO_REF=edge
     OMARCHY_MIRROR=edge
@@ -57,7 +61,7 @@ while [[ $# -gt 0 ]]; do
     ;;
   *)
     echo "Unknown option: $1"
-    echo "Usage: $0 [--no-cache] [--keep-pkg-cache] [--no-boot-offer] [--debug] [--edge] [--dev|--rc] [--local-source <omarchy-checkout> <pkgs-checkout>]"
+    echo "Usage: $0 [--no-cache] [--keep-pkg-cache] [--no-boot-offer] [--debug] [--headless] [--edge] [--dev|--rc] [--local-source <omarchy-checkout> <pkgs-checkout>]"
     exit 1
     ;;
   esac
@@ -119,12 +123,14 @@ mkdir -p "$BUILD_RELEASE_PATH"
 
 OMARCHY_ISO_REF="${OMARCHY_ISO_REF:-quattro}"
 OMARCHY_MIRROR="${OMARCHY_MIRROR:-stable}"
+OMARCHY_PROFILE="${OMARCHY_PROFILE:-desktop}"
 
 DOCKER_ARGS=(
   --rm
   --privileged
   -e "OMARCHY_ISO_REF=$OMARCHY_ISO_REF"
   -e "OMARCHY_MIRROR=$OMARCHY_MIRROR"
+  -e "OMARCHY_PROFILE=$OMARCHY_PROFILE"
   -e "OMARCHY_INSTALL_DEBUG=${OMARCHY_INSTALL_DEBUG:-}"
   -e "HOST_UID=$(id -u)"
   -e "HOST_GID=$(id -g)"
