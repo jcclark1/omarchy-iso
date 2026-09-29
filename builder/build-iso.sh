@@ -12,14 +12,21 @@ OMARCHY_MIRROR="${OMARCHY_MIRROR:-stable}"
 # build included, installs the published omarchy packages.
 case "$OMARCHY_ISO_REF" in
   edge|dev|local)
-    : "${OMARCHY_RUNTIME_PACKAGE:=omarchy-dev}"
+    runtime_default=omarchy-dev
     : "${OMARCHY_SETTINGS_PACKAGE:=omarchy-settings-dev}"
     ;;
   *)
-    : "${OMARCHY_RUNTIME_PACKAGE:=omarchy}"
+    runtime_default=omarchy
     : "${OMARCHY_SETTINGS_PACKAGE:=omarchy-settings}"
     ;;
 esac
+# A headless build installs the server split of the runtime (omarchy-server /
+# omarchy-server-dev): the same payload without the desktop dependencies, which
+# the server offline mirror deliberately does not carry.
+if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
+  runtime_default=${runtime_default/omarchy/omarchy-server}
+fi
+: "${OMARCHY_RUNTIME_PACKAGE:=$runtime_default}"
 : "${OMARCHY_NVIM_PACKAGE:=omarchy-nvim}"
 export OMARCHY_RUNTIME_PACKAGE OMARCHY_SETTINGS_PACKAGE OMARCHY_NVIM_PACKAGE
 

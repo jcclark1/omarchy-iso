@@ -45,6 +45,12 @@ packages=(
 # Local-source packages must replace every cached build of the same package,
 # even when the checkout's generated pkgver sorts below a published build.
 # Otherwise the later generic cache pruning can silently keep edge instead.
+# The server runtime packages are split packages of the desktop recipes, so
+# they build from those directories; makepkg emits both halves of the split.
+pkgbuild_dir() {
+  echo "${1/omarchy-server/omarchy}"
+}
+
 for pkg in "${packages[@]}"; do
   rm -f "$offline_mirror_dir/$pkg-"*.pkg.tar.*
 done
@@ -54,11 +60,12 @@ for pkg in "${packages[@]}"; do
   echo "Building $pkg"
   echo "----------------------------------------"
   pkg_work="$work_dir/$pkg"
-  if [[ ! -d "/omarchy-pkgs/pkgbuilds/$pkg" ]]; then
-    echo "ERROR: package source not found: /omarchy-pkgs/pkgbuilds/$pkg" >&2
+  pkg_src="/omarchy-pkgs/pkgbuilds/$(pkgbuild_dir "$pkg")"
+  if [[ ! -d $pkg_src ]]; then
+    echo "ERROR: package source not found: $pkg_src" >&2
     exit 1
   fi
-  cp -a "/omarchy-pkgs/pkgbuilds/$pkg" "$pkg_work"
+  cp -a "$pkg_src" "$pkg_work"
   chown -R builder:builder "$pkg_work"
 
   su builder -c "
