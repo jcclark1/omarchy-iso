@@ -72,6 +72,28 @@ base_image_ready() {
   [[ -f $BASE_DISK && -f $BASE_OVMF && -f $SSH_KEY ]]
 }
 
+# The install profile the base image was built with ("server" for a
+# --headless ISO), recorded by install_phase so scenarios can skip bases they
+# do not apply to without booting one. A base saved before this was recorded
+# is a desktop one.
+base_profile() {
+  if [[ -f $BASE_DIR/profile ]]; then
+    cat "$BASE_DIR/profile"
+  else
+    echo desktop
+  fi
+}
+
+skip_unless_profile() {
+  local want="$1" have
+
+  have=$(base_profile)
+  if [[ $have != "$want" ]]; then
+    log "$SCENARIO skipped: needs a $want base, this ISO installs $have"
+    exit 0
+  fi
+}
+
 # ---------------------------------------------------------------- vm control
 
 vm_running() {
@@ -567,6 +589,8 @@ install_phase() {
   done
 
   log "Installed system is up. Saving base image."
+  rm -f "$BASE_DIR/profile"
+  ssh_guest "cat /etc/omarchy/profile 2>/dev/null || echo desktop" | tr -d '\r' >"$BASE_DIR/profile"
   stop_vm
   mv "$BASE_DISK.building" "$BASE_DISK"
 }

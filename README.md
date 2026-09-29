@@ -130,6 +130,8 @@ Scenarios under `test/integration.d/` boot a real ISO install in QEMU and assert
 
 The first scenario is `factory-reset`: it proves `omarchy-system-factory-reset` hands a machine on without destroying a shared ESP. The installed ESP gets a Windows entry with payload plus a second Linux cloned under a foreign machine-id with its own boot directory and UKIs; a real factory reset is then driven through a guest pty, and the harness asserts the foreign entries survive both the staged reset and first-boot provisioning, that the old Omarchy identity is fully retired, and that the machine reaches first-boot setup unattended.
 
+`headless-server` covers a `--headless` ISO: it asserts the installed system is on the server profile (multi-user.target with tty1 autologin and no display manager), that sshd is active and allowed through ufw, that the stock kernel replaced the requested `linux-omarchy`, that the CLI/dev core is present with no desktop stack, and that a mise wrapper (`gh`) resolves on first use. The runner records each base's install profile, so `headless-server` skips on a desktop base and `factory-reset`, which drives the graphical first boot, skips on a server base.
+
 Artifacts — screenshots, the fixtured/staged/final `limine.conf`, the reset typescript, and the factory-reset log — land under `test-runs/<iso>-integration/runs/<timestamp>-<scenario>/`, and `--no-preview` skips the `imv` review just like the acceptance harness.
 
 ## Signing the ISO

@@ -16,6 +16,9 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 FOREIGN_ID="fedcfedcfedcfedcfedcfedcfedcfedc"
 
 base_image_ready || { echo "No base image; run this through ./test/integration" >&2; exit 1; }
+# The reset hands off to the graphical first-boot setup, which a headless
+# server does not have.
+skip_unless_profile desktop
 
 # --------------------------------------------------------------- esp fixture
 
