@@ -287,7 +287,7 @@ def arch_install_system(ctx: InstallContext) -> None:
             if config.auth_config and config.auth_config.users:
                 installer.create_users(config.auth_config.users)
 
-            if config.app_config:
+            if _wants_application_selections(ctx, config):
                 info("› installing archinstall application selections")
                 arch.install_applications(installer, config)
 
@@ -722,6 +722,13 @@ def _unmask_mkinitcpio_pacman_hooks(
                 backup.rename(path)
         except OSError as exc:
             info(f"warning: failed to restore pacman hook mask for {name}: {exc}")
+
+
+def _wants_application_selections(ctx: InstallContext, config) -> bool:
+    """archinstall's application selections (PipeWire audio, Bluetooth) are
+    desktop hardware support. A server installs none of them, and its offline
+    mirror does not carry their packages, so pacstrap would fail on them."""
+    return bool(config.app_config) and ctx.profile != "server"
 
 
 def _runtime_package_list(ctx: InstallContext) -> list[str]:

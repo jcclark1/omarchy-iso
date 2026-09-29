@@ -131,6 +131,26 @@ class ConfigureLoginTest(unittest.TestCase):
             self.assertFalse((target / "etc/sddm.conf.d").exists(), "no sddm config on server")
 
 
+class ApplicationSelectionsTest(unittest.TestCase):
+    """archinstall's audio/Bluetooth selections are skipped on a server: its
+    mirror lacks their packages (pipewire-alsa, wireplumber, ...), which failed
+    pacstrap."""
+
+    def _wants(self, profile, app_config):
+        ctx = mock.Mock(profile=profile)
+        config = mock.Mock(app_config=app_config)
+        return phases_impl._wants_application_selections(ctx, config)
+
+    def test_server_skips_audio(self):
+        self.assertFalse(self._wants("server", {"audio_config": {"audio": "pipewire"}}))
+
+    def test_desktop_installs_audio(self):
+        self.assertTrue(self._wants("desktop", {"audio_config": {"audio": "pipewire"}}))
+
+    def test_nothing_selected(self):
+        self.assertFalse(self._wants("desktop", None))
+
+
 class RuntimePackageListTest(unittest.TestCase):
     """The server profile reads omarchy-server.packages; desktop reads base."""
 
