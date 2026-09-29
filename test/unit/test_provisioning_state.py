@@ -161,6 +161,7 @@ def make_ctx(target, **overrides):
     defaults = dict(
         target=target,
         defer_provisioning=True,
+        profile="desktop",
         encrypt=False,
         username="",
         omarchy_install={"mode": "full_disk", "defer_provisioning": True, "storage": {}},

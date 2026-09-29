@@ -66,6 +66,18 @@ class InstallContext:
             kernel = (omarchy_install.get("storage") or {}).get("kernel") or _default_kernel(profile=profile)
             user_configuration["kernels"] = [kernel]
 
+        # The server mirror carries only the stock kernel. The interactive
+        # configurator's detect_kernel() defaults non-T2 hardware to
+        # linux-omarchy, which would not resolve at pacstrap on a headless build;
+        # coerce it to linux so both the unattended and interactive paths install
+        # a kernel that is actually in the mirror. An explicit linux-t2 (Mac) or
+        # other choice is left alone.
+        if profile == "server":
+            user_configuration["kernels"] = [
+                "linux" if kernel == "linux-omarchy" else kernel
+                for kernel in user_configuration["kernels"]
+            ]
+
         # Deferred provisioning: the whole system installs but user creation is deferred to
         # first boot. Selected by the configurator (omarchy_install.defer_provisioning) or by
         # an `defer-provisioning` marker file on an autoinstall drive, which also replaces the

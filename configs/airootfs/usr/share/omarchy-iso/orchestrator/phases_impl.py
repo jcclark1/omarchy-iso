@@ -1420,6 +1420,13 @@ def _read_omarchy_mirror() -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def configure_login(ctx: InstallContext) -> None:
+    if ctx.profile == "server":
+        # Headless login is owned by omarchy-apply-system's login/headless.sh,
+        # which ran in run_system_finalizer: multi-user.target plus a getty
+        # autologin. There is no SDDM to enable, and that getty autologin drop-in
+        # (which the desktop path below removes) must be left in place.
+        return
+
     sddm_dir = ctx.target / "etc" / "sddm.conf.d"
     sddm_dir.mkdir(parents=True, exist_ok=True)
     (sddm_dir / "99-omarchy-login.conf").write_text(
