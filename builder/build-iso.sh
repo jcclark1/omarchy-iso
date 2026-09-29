@@ -324,6 +324,10 @@ resolve_expected_packages() {
   local resolve_root=/tmp/omarchy-expected-packages
   local resolved
   local -a targets
+  local expected_manifest=omarchy-base.packages
+  if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
+    expected_manifest=omarchy-server.packages
+  fi
 
   rm -rf "$resolve_root"
   mkdir -p "$resolve_root/var/lib/pacman"
@@ -331,10 +335,11 @@ resolve_expected_packages() {
   mapfile -t targets < <(
     {
       grep -hv '^#\|^$' /builder/archinstall.packages
-      # Read the shipped copy, which is what _runtime_package_list reads at
-      # install time, not the build-time source it came from.
+      # Read the shipped copy the installer's _runtime_package_list will read at
+      # install time (the server manifest on a headless build), not the
+      # build-time source it came from.
       grep -hv '^#\|^$' \
-        "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
+        "$build_cache_dir/airootfs/usr/share/omarchy-iso/$expected_manifest"
       printf '%s\n' "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" \
         "$OMARCHY_NVIM_PACKAGE"
     } | sort -u
@@ -364,9 +369,15 @@ if ! expected_packages="$(resolve_expected_packages)"; then
   echo "       same way at install time." >&2
   exit 1
 fi
-if (( expected_packages < 600 || expected_packages > 2000 )); then
+# The headless closure is much smaller than the desktop one, so its floor is
+# lower; the ceiling is shared.
+expected_floor=600
+if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
+  expected_floor=200
+fi
+if (( expected_packages < expected_floor || expected_packages > 2000 )); then
   echo "WARNING: resolved target package count $expected_packages is outside the" >&2
-  echo "         expected 600-2000 range; shipping no denominator so the install" >&2
+  echo "         expected ${expected_floor}-2000 range; shipping no denominator so the install" >&2
   echo "         dashboard falls back to its time-based curve." >&2
 else
   printf '%s\n' "$expected_packages" \
