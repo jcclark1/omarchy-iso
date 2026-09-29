@@ -13,7 +13,7 @@ The canonical call sequence (mirrored from archinstall.scripts.guided.py) is:
         # configs do their own mounting before the Installer context opens.
         if disk_config.config_type != DiskLayoutType.Pre_mount:
             inst.mount_ordered_layout()
-        inst.sanity_check(offline=, skip_ntp=, skip_wkd=)
+        sanity_check(inst)                            # skips NTP/WKD waits
         inst.generate_key_files()                     # encrypted only
         inst.set_mirrors(handler, mirror_config, on_target=False)
         inst.minimal_installation(...)                # base + linux pacstrap
@@ -216,6 +216,20 @@ def _method_accepts(method, name: str) -> bool:
 
 def _method_accepts_users(method) -> bool:
     return _method_accepts(method, "users")
+
+
+def sanity_check(installer: Installer) -> None:
+    """Run archinstall's pre-install service checks without the network waits.
+
+    The live ISO installs from its offline mirror, so waiting on NTP sync or the
+    WKD keyring refresh only stalls the install. archinstall 4.5 dropped the
+    `offline` flag (it gated reflector, which this ISO removes), so pass it
+    only to releases that still accept it.
+    """
+    kwargs = {"skip_ntp": True, "skip_wkd": True}
+    if _method_accepts(installer.sanity_check, "offline"):
+        kwargs["offline"] = True
+    installer.sanity_check(**kwargs)
 
 
 def install_applications(installer: Installer, arch_config: ArchConfig) -> None:
