@@ -172,21 +172,26 @@ mkdir -p "$build_cache_dir/airootfs/usr/share/omarchy-iso"
 cp "${base_pkg_lists[0]}" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
 cp "${base_pkg_lists[1]}" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-other.packages"
 
-# The server profile's package manifest and, for a --headless build, the baked
-# profile marker the installer reads to select it. mirror_pkg_lists carries any
-# extra manifest into the offline mirror so a headless install finds openssh,
-# qemu-guest-agent and the stock kernel that the desktop lists don't name.
-mirror_pkg_lists=("${base_pkg_lists[@]}")
+# Ship the server manifest into the airootfs whenever the source carries it, so
+# the installer can pacstrap from it.
 if [[ -n ${server_pkg_list:-} && -f $server_pkg_list ]]; then
   cp "$server_pkg_list" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-server.packages"
-  mirror_pkg_lists+=("$server_pkg_list")
 fi
+
+# Which manifest feeds the offline mirror. A headless build uses the server
+# manifest ALONE: it must not pull the desktop/laptop hardware packages in
+# omarchy-other.packages (nvidia, T2 Mac firmware, broadcom, ...) that a server
+# neither installs nor wants, and that a hardware repo may not even be serving.
+# The stock kernel, openssh and qemu-guest-agent it does need are named there.
 if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
   if [[ -z ${server_pkg_list:-} || ! -f $server_pkg_list ]]; then
     echo "ERROR: --headless needs install/omarchy-server.packages, which this Omarchy source does not ship." >&2
     exit 1
   fi
+  mirror_pkg_lists=("$server_pkg_list")
   printf 'server\n' >"$build_cache_dir/airootfs/usr/share/omarchy-iso/profile"
+else
+  mirror_pkg_lists=("${base_pkg_lists[@]}")
 fi
 
 # The configurator's setup form comes from the runtime this ISO bundles, so the
