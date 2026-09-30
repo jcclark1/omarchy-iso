@@ -81,6 +81,8 @@ check "no desktop stack is installed" \
   ssh_guest "! pacman -Q hyprland && ! pacman -Q sddm && ! pacman -Q chromium"
 check "docker is enabled" \
   ssh_guest "systemctl is-enabled docker.socket"
+check "tailscale is installed but not enabled" \
+  ssh_guest "pacman -Q tailscale && ! systemctl is-enabled tailscaled.service"
 
 # --- network install ---
 
