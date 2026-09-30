@@ -10,6 +10,22 @@
 # Expects from build-iso.sh: build_cache_dir, local_repo_dir, OMARCHY_MIRROR,
 # the OMARCHY_*_PACKAGE targets and the shipped server manifest. Ends the build.
 
+# Stock Arch rescue tools from the releng package list that the Omarchy
+# installer never uses (~100 MB): disk imaging, VM guest tools for hypervisors
+# a server installer does not target, dial-up/VPN/modem clients, and
+# interactive extras. Reflector goes too: installs use the channel's snapshot
+# mirror. Removed from the explicit list only; anything the installer needs
+# that depends on one still pulls it back in.
+live_trim_packages=(
+  clonezilla partclone partimage fsarchiver
+  open-vm-tools virtualbox-guest-utils-nox
+  modemmanager usb_modeswitch openconnect vpnc openvpn pptpclient ppp wvdial xl2tpd linux-atm
+  nmap irssi lynx mc vim grml-zsh-config
+  reflector
+)
+trimmed_packages=$(grep -Fxv -f <(printf '%s\n' "${live_trim_packages[@]}") "$build_cache_dir/packages.x86_64")
+printf '%s\n' "$trimmed_packages" >"$build_cache_dir/packages.x86_64"
+
 online_pacman_conf="/configs/pacman-online-${OMARCHY_MIRROR}.conf"
 build_pacman_conf="$build_cache_dir/pacman-network-build.conf"
 live_pacman_conf="$build_cache_dir/airootfs/etc/pacman.conf"
