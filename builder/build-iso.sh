@@ -148,6 +148,7 @@ sed -i -E '/^(linux|broadcom-wl)$/d' "$build_cache_dir/packages.x86_64"
 if [[ -d /omarchy-source ]]; then
   base_pkg_lists=(/omarchy-source/install/omarchy-base.packages /omarchy-source/install/omarchy-other.packages)
   server_pkg_list=/omarchy-source/install/omarchy-server.packages
+  server_other_pkg_list=/omarchy-source/install/omarchy-server-other.packages
   setup_form=/omarchy-source/install/provisioning/setup-form.sh
 else
   # Pull the same package lists out of the freshly-downloaded Omarchy runtime
@@ -167,6 +168,8 @@ else
   # Optional: a runtime predating the server profile ships no such file.
   bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-server.packages 2>/dev/null || true
   server_pkg_list=/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-server.packages
+  bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-server-other.packages 2>/dev/null || true
+  server_other_pkg_list=/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-server-other.packages
   # Extracted on its own, tolerating a miss: bsdtar exits non-zero for a member
   # it can't find, so asking for this alongside the package lists would abort the
   # build here (set -e) with a bare "Not found in archive" instead of the
@@ -190,12 +193,18 @@ fi
 # omarchy-other.packages (nvidia, T2 Mac firmware, broadcom, ...) that a server
 # neither installs nor wants, and that a hardware repo may not even be serving.
 # The stock kernel, openssh and qemu-guest-agent it does need are named there.
+# omarchy-server-other.packages adds the few packages server hardware scripts
+# install conditionally (the NVIDIA compute driver); a runtime predating it
+# ships no such file.
 if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
   if [[ -z ${server_pkg_list:-} || ! -f $server_pkg_list ]]; then
     echo "ERROR: --headless needs install/omarchy-server.packages, which this Omarchy source does not ship." >&2
     exit 1
   fi
   mirror_pkg_lists=("$server_pkg_list")
+  if [[ -n ${server_other_pkg_list:-} && -f $server_other_pkg_list ]]; then
+    mirror_pkg_lists+=("$server_other_pkg_list")
+  fi
   printf 'server\n' >"$build_cache_dir/airootfs/usr/share/omarchy-iso/profile"
 else
   mirror_pkg_lists=("${base_pkg_lists[@]}")
