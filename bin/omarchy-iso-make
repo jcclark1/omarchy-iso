@@ -154,10 +154,14 @@ fi
 
 # Mount the build cache directory where packages are downloaded. Channels use
 # different package snapshots and must never share an offline mirror cache.
+# A headless ISO is a network install and carries no offline mirror, so it mounts
+# none: the channel's cached mirror would otherwise land in its live root.
 if [[ -z "$NO_CACHE" ]]; then
-  OFFLINE_REPO_BUILD_CACHE_DIR="$HOME/.cache/omarchy/iso_${OMARCHY_MIRROR}/airootfs/var/cache/omarchy"
-  mkdir -p "$OFFLINE_REPO_BUILD_CACHE_DIR"
-  DOCKER_ARGS+=(-v "$OFFLINE_REPO_BUILD_CACHE_DIR:/var/cache/airootfs/var/cache/omarchy")
+  if [[ $OMARCHY_PROFILE != "server" ]]; then
+    OFFLINE_REPO_BUILD_CACHE_DIR="$HOME/.cache/omarchy/iso_${OMARCHY_MIRROR}/airootfs/var/cache/omarchy"
+    mkdir -p "$OFFLINE_REPO_BUILD_CACHE_DIR"
+    DOCKER_ARGS+=(-v "$OFFLINE_REPO_BUILD_CACHE_DIR:/var/cache/airootfs/var/cache/omarchy")
+  fi
 else
   # The locally cached :latest image is a cache too — docker run never
   # re-checks the registry for it, so refresh it when building cold.

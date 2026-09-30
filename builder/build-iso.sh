@@ -58,6 +58,23 @@ fi
 # Build locations
 build_cache_dir=/var/cache
 offline_mirror_dir="$build_cache_dir/airootfs/var/cache/omarchy/mirror/offline"
+
+# A headless build is a network install: no offline mirror, only omarchy-local
+# with the packages built from the local checkouts (see build-network-install.sh).
+# Those packages exist in no online repo, so it needs --local-source.
+if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
+  if [[ ! -d /omarchy-source || ! -d /omarchy-pkgs ]]; then
+    echo "ERROR: --headless needs --local-source: omarchy-server is published in no online repo." >&2
+    exit 1
+  fi
+  if [[ -e $offline_mirror_dir ]]; then
+    echo "ERROR: $offline_mirror_dir exists, so the headless ISO would ship an offline mirror." >&2
+    echo "       omarchy-iso-make mounts no mirror cache for --headless; is this an old cache mount?" >&2
+    exit 1
+  fi
+  offline_mirror_dir="$build_cache_dir/airootfs/var/cache/omarchy/mirror/local"
+  local_repo_dir=$offline_mirror_dir
+fi
 mkdir -p "$build_cache_dir" "$offline_mirror_dir"
 
 # Seed from the official Arch releng profile.
@@ -148,7 +165,6 @@ sed -i -E '/^(linux|broadcom-wl)$/d' "$build_cache_dir/packages.x86_64"
 if [[ -d /omarchy-source ]]; then
   base_pkg_lists=(/omarchy-source/install/omarchy-base.packages /omarchy-source/install/omarchy-other.packages)
   server_pkg_list=/omarchy-source/install/omarchy-server.packages
-  server_other_pkg_list=/omarchy-source/install/omarchy-server-other.packages
   setup_form=/omarchy-source/install/provisioning/setup-form.sh
 else
   # Pull the same package lists out of the freshly-downloaded Omarchy runtime
@@ -168,8 +184,6 @@ else
   # Optional: a runtime predating the server profile ships no such file.
   bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-server.packages 2>/dev/null || true
   server_pkg_list=/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-server.packages
-  bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-server-other.packages 2>/dev/null || true
-  server_other_pkg_list=/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-server-other.packages
   # Extracted on its own, tolerating a miss: bsdtar exits non-zero for a member
   # it can't find, so asking for this alongside the package lists would abort the
   # build here (set -e) with a bare "Not found in archive" instead of the
@@ -188,23 +202,17 @@ if [[ -n ${server_pkg_list:-} && -f $server_pkg_list ]]; then
   cp "$server_pkg_list" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-server.packages"
 fi
 
-# Which manifest feeds the offline mirror. A headless build uses the server
-# manifest ALONE: it must not pull the desktop/laptop hardware packages in
+# Which manifest the target installs. A headless build uses the server manifest
+# ALONE: it must not pull the desktop/laptop hardware packages in
 # omarchy-other.packages (nvidia, T2 Mac firmware, broadcom, ...) that a server
-# neither installs nor wants, and that a hardware repo may not even be serving.
-# The stock kernel, openssh and qemu-guest-agent it does need are named there.
-# omarchy-server-other.packages adds the few packages server hardware scripts
-# install conditionally (the NVIDIA compute driver); a runtime predating it
-# ships no such file.
+# neither installs nor wants. Hardware scripts install what they detect from
+# the network.
 if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
   if [[ -z ${server_pkg_list:-} || ! -f $server_pkg_list ]]; then
     echo "ERROR: --headless needs install/omarchy-server.packages, which this Omarchy source does not ship." >&2
     exit 1
   fi
   mirror_pkg_lists=("$server_pkg_list")
-  if [[ -n ${server_other_pkg_list:-} && -f $server_other_pkg_list ]]; then
-    mirror_pkg_lists+=("$server_other_pkg_list")
-  fi
   printf 'server\n' >"$build_cache_dir/airootfs/usr/share/omarchy-iso/profile"
 else
   mirror_pkg_lists=("${base_pkg_lists[@]}")
@@ -228,6 +236,11 @@ if [[ ! -f $setup_form ]]; then
   exit 1
 fi
 cp "$setup_form" "$build_cache_dir/airootfs/usr/share/omarchy-iso/setup-form.sh"
+
+# Headless: build omarchy-local and the online pacman.conf, then the ISO.
+if [[ ${OMARCHY_PROFILE:-} == "server" ]]; then
+  source /builder/build-network-install.sh
+fi
 
 # Collect every package we want available in the offline mirror.
 declare -a all_packages
