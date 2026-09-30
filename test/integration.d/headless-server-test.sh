@@ -6,7 +6,8 @@
 # manager, a verbose boot with no Plymouth splash, SSH enabled and let through the firewall, the stock kernel (the
 # cidata config asks for linux-omarchy, which the server install coerces),
 # the CLI/dev core installed with no desktop stack, packages installed from
-# the network (no offline mirror, ISO under the release size gate), and the
+# the network (no offline mirror, ISO under the release size gate) over a
+# static connection carried to the installed server, and the
 # mise wrappers ("delayed packages") resolving on first use.
 #
 # Skips on a desktop base, so the default suite stays green for either ISO.
@@ -92,6 +93,13 @@ check "packages came from the online repos" \
   ssh_guest "test -f /var/lib/pacman/sync/core.db && test -f /var/lib/pacman/sync/omarchy.db"
 check "nothing came from an offline mirror" \
   ssh_guest "! test -e /var/lib/pacman/sync/offline.db"
+
+# The cidata drive's static connection (base-test.sh) was loaded by the live
+# installer and carried to the installed server, which brought it up.
+check "the installer's static connection reached the server" \
+  ssh_sudo "test \$(stat -c %a /etc/NetworkManager/system-connections/omarchy-test-static.nmconnection) = 600"
+check "the static connection is active" \
+  ssh_guest "nmcli -t -f NAME connection show --active | grep -qx omarchy-test-static"
 
 # --- delayed packages (mise wrappers) ---
 

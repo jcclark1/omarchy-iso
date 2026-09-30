@@ -506,6 +506,26 @@ EOF
   echo "false" >"$dir/user_encrypt_installation.txt"
   cp "$SSH_KEY.pub" "$dir/authorized_keys"
 
+  # A static connection on QEMU's user network (the address its DHCP would
+  # hand out anyway). A headless ISO installs over it and carries it to the
+  # installed server (headless-server-test.sh checks both); a desktop ISO's
+  # orchestrator leaves it behind.
+  cat >"$dir/omarchy-test-static.nmconnection" <<'NMCONNECTION'
+[connection]
+id=omarchy-test-static
+type=ethernet
+autoconnect=true
+autoconnect-priority=10
+
+[ipv4]
+method=manual
+address1=10.0.2.15/24,10.0.2.2
+dns=10.0.2.3;
+
+[ipv6]
+method=auto
+NMCONNECTION
+
   rm -f "$CIDATA_IMG"
   truncate -s 4M "$CIDATA_IMG"
   mkfs.vfat -n CIDATA "$CIDATA_IMG" >/dev/null
