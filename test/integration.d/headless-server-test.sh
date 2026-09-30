@@ -3,7 +3,7 @@
 # Headless server profile: proves a --headless ISO installs a console-only
 # Omarchy server. Boots the installed base and asserts it came up on the
 # server profile: multi-user.target with tty1 autologin instead of a display
-# manager, SSH enabled and let through the firewall, the stock kernel (the
+# manager, a verbose boot with no Plymouth splash, SSH enabled and let through the firewall, the stock kernel (the
 # cidata config asks for linux-omarchy, which the server install coerces),
 # the CLI/dev core installed with no desktop stack, and the mise wrappers
 # ("delayed packages") resolving on first use.
@@ -40,6 +40,21 @@ check "the tty1 console session is logged in" \
   ssh_guest "loginctl list-sessions --no-legend | grep -q '$GUEST_USER.*tty1'"
 check "provisioning completed" \
   ssh_guest "! test -f /var/lib/omarchy/provisioning/pending"
+
+# --- verbose boot (no Plymouth splash) ---
+
+ssh_guest "cat /proc/cmdline" >"$RUN_DIR/cmdline.txt" || true
+
+check "the cmdline disables plymouth" \
+  ssh_guest "grep -qw plymouth.enable=0 /proc/cmdline"
+check "the cmdline ends on a visible loglevel" \
+  ssh_guest "[[ \$(grep -o 'loglevel=[0-9]*' /proc/cmdline | tail -1) == loglevel=4 ]]"
+check "plymouth is not running" \
+  ssh_guest "! pidof plymouthd"
+# Unpack each Omarchy UKI's initramfs; none may carry the plymouth hook. The
+# btrfs-overlayfs hook must be listed, so an unreadable image cannot pass.
+check "the boot image has no plymouth hook" \
+  ssh_sudo 'set -e; shopt -s nullglob; ukis=(/boot/EFI/Linux/omarchy_*.efi); (( ${#ukis[@]} )); for uki in "${ukis[@]}"; do objcopy -O binary --only-section=.initrd "$uki" /tmp/initrd.img; files=$(lsinitcpio /tmp/initrd.img); grep -q "hooks/btrfs-overlayfs" <<<"$files"; if grep -q "hooks/plymouth" <<<"$files"; then exit 1; fi; done; rm -f /tmp/initrd.img'
 
 # --- remote access ---
 
