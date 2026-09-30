@@ -190,5 +190,75 @@ class RuntimePackageListTest(unittest.TestCase):
         self.assertNotIn("openssh", pkgs)
 
 
+
+class NetworkInstallTest(unittest.TestCase):
+    """A headless ISO installs from the channel's online repos."""
+
+    CONFIGS = Path(__file__).resolve().parents[2] / "configs"
+
+    def test_only_server_is_a_network_install(self):
+        self.assertTrue(phases_impl._is_network_install(mock.Mock(profile="server")))
+        self.assertFalse(phases_impl._is_network_install(mock.Mock(profile="desktop")))
+
+    def test_core_db_url_uses_the_channel_snapshot_mirror(self):
+        for channel, host in (("stable", "stable-mirror"), ("edge", "mirror")):
+            conf = (self.CONFIGS / f"pacman-online-{channel}.conf").read_text()
+            self.assertEqual(
+                phases_impl._core_db_url(conf),
+                f"https://{host}.omarchy.org/core/os/x86_64/core.db",
+            )
+
+    def test_core_db_url_skips_local_repos(self):
+        conf = "[options]\n[omarchy-local]\nServer = file:///x/\n[core]\nServer = file:///y/\nServer = https://m/$repo/os/$arch\n"
+        self.assertEqual(phases_impl._core_db_url(conf), "https://m/core/os/x86_64/core.db")
+
+    def test_core_db_url_rejects_an_offline_conf(self):
+        conf = (self.CONFIGS / "pacman-offline.conf").read_text()
+        with self.assertRaises(RuntimeError):
+            phases_impl._core_db_url(conf)
+
+    def test_unreachable_mirror_fails_with_the_network_message(self):
+        failed = mock.Mock(returncode=6, stderr="Could not resolve host")
+        with mock.patch.object(phases_impl.subprocess, "run", return_value=failed), \
+                mock.patch.object(phases_impl.time, "sleep"):
+            with self.assertRaises(RuntimeError) as caught:
+                phases_impl._require_network("https://m/core.db", wait_seconds=0)
+        self.assertIn("wired network with DHCP", str(caught.exception))
+        self.assertIn("Could not resolve host", str(caught.exception))
+
+    def test_reachable_mirror_passes(self):
+        ok = mock.Mock(returncode=0, stderr="")
+        with mock.patch.object(phases_impl.subprocess, "run", return_value=ok) as run:
+            phases_impl._require_network("https://m/core.db")
+        self.assertEqual(run.call_count, 1)
+
+    def test_keyring_timeout_is_a_clear_error(self):
+        timeout = phases_impl.subprocess.TimeoutExpired("systemctl", 1)
+        with mock.patch.object(phases_impl.subprocess, "run", side_effect=timeout):
+            with self.assertRaisesRegex(RuntimeError, "pacman-init"):
+                phases_impl._wait_for_pacman_keyring(wait_seconds=1)
+
+    def _target_bind_sources(self, profile):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = mock.Mock(target=Path(tmp), profile=profile, state={})
+            (ctx.target / "etc").mkdir()
+            with mock.patch.object(phases_impl.shutil, "copy"), \
+                    mock.patch.object(phases_impl.subprocess, "run") as run:
+                phases_impl._prepare_target_setup(ctx)
+            return [c.args[0][2] for c in run.call_args_list]
+
+    def test_server_target_setup_binds_the_local_repo(self):
+        self.assertEqual(
+            self._target_bind_sources("server"),
+            ["/var/cache/omarchy/mirror/local", "/opt/packages"],
+        )
+
+    def test_desktop_target_setup_binds_the_offline_mirror(self):
+        self.assertEqual(
+            self._target_bind_sources("desktop"),
+            ["/var/cache/omarchy/mirror/offline", "/opt/packages"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

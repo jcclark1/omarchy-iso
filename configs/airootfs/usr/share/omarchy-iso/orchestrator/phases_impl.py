@@ -162,14 +162,19 @@ def _early_packages() -> list[str]:
 # holders on the install disk (via the bash helper), then parse the
 # configurator output.
 #
-# The live pacman keyring is deliberately NOT waited on. The offline repo is
-# SigLevel = Never (see configs/pacman-offline.conf for why that is required:
+# On the desktop, the live pacman keyring is deliberately NOT waited on. The
+# offline repo is SigLevel = Never (see configs/pacman-offline.conf for why that is required:
 # pacstrap verifies against the LIVE GpgDir, so anything short of Never makes
 # installs depend on archiso's boot-time pacman-init.service). That service
 # (gpg key generation + populating every keyring, Type=oneshot with no start
 # timeout) can take minutes on real hardware reading from USB — blocking on
 # it here stalled installs at 5% while it ground away in the background, and
 # racing it failed pacstrap with "required key missing from keyring".
+#
+# A server install is different: the headless ISO carries no offline mirror
+# and installs from the channel's online repos (SigLevel = Required), so it
+# needs the network, a sane clock and the populated keyring before pacstrap.
+# See _prepare_network_install.
 #
 # archinstall is patched in the wrapper (omarchy-iso-install) BEFORE Python
 # imports it, so no patching happens here.
@@ -188,7 +193,107 @@ def prepare_live(ctx: InstallContext) -> None:
     ctx.state["arch_config_handler"] = arch.load_arch_config(
         ctx.arch_config_path, ctx.creds_path
     )
-    ctx.state["mirror_handler"] = arch.make_mirror_handler(offline=True)
+    ctx.state["mirror_handler"] = arch.make_mirror_handler(offline=not _is_network_install(ctx))
+
+    if _is_network_install(ctx):
+        _prepare_network_install()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Network install (server profile). The headless ISO ships only omarchy-local
+# (the packages built from the forks) and a live pacman.conf pointing at the
+# channel's online repos; see builder/build-network-install.sh.
+#
+# archinstall's own NTP and WKD waits (sanity_check) have no timeout, so they
+# stay skipped and these bounded waits replace them.
+# ─────────────────────────────────────────────────────────────────────────────
+
+OFFLINE_REPO = "/var/cache/omarchy/mirror/offline"
+LOCAL_REPO = "/var/cache/omarchy/mirror/local"
+NETWORK_WAIT_SECONDS = 90
+NTP_WAIT_SECONDS = 60
+KEYRING_WAIT_SECONDS = 900
+NETWORK_REQUIRED_MESSAGE = (
+    "This installer downloads packages, so it needs a wired network with DHCP. "
+    "Connect Ethernet and start the install again."
+)
+
+
+def _is_network_install(ctx: InstallContext) -> bool:
+    return ctx.profile == "server"
+
+
+def _prepare_network_install(pacman_conf: Path = Path("/etc/pacman.conf")) -> None:
+    _require_network(_core_db_url(pacman_conf.read_text()))
+    _sync_clock()
+    _wait_for_pacman_keyring()
+
+
+def _core_db_url(pacman_conf: str, arch_name: str = "x86_64") -> str:
+    """The [core] database URL from the first online Server in pacman.conf."""
+    section = None
+    for raw in pacman_conf.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+        elif section == "core" and line.startswith("Server") and "=" in line:
+            server = line.split("=", 1)[1].strip()
+            if server.startswith(("http://", "https://")):
+                server = server.replace("$repo", "core").replace("$arch", arch_name)
+                return f"{server.rstrip('/')}/core.db"
+    raise RuntimeError("the live pacman.conf lists no online server for [core]")
+
+
+def _require_network(url: str, wait_seconds: int = NETWORK_WAIT_SECONDS) -> None:
+    """Fail fast, and clearly, when the mirror is unreachable. Retries for a
+    while first, since DHCP may still be settling this soon after boot."""
+    info("› checking the network (packages download during the install)")
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        proc = subprocess.run(
+            ["curl", "-fsSL", "--max-time", "15", "-o", "/dev/null", url],
+            capture_output=True, text=True,
+        )
+        if proc.returncode == 0:
+            return
+        if time.monotonic() >= deadline:
+            detail = proc.stderr.strip() or f"curl exit {proc.returncode}"
+            raise RuntimeError(f"{NETWORK_REQUIRED_MESSAGE}\nCould not reach {url}: {detail}")
+        time.sleep(5)
+
+
+def _sync_clock(wait_seconds: int = NTP_WAIT_SECONDS) -> None:
+    """Package signatures need a sane clock. A machine whose RTC is badly off
+    fails pacstrap with invalid-signature errors, so wait for NTP; on timeout,
+    carry on with the RTC's time rather than block the install."""
+    info("› syncing the clock (package signature checks need it)")
+    subprocess.run(["timedatectl", "set-ntp", "true"], capture_output=True)
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        proc = subprocess.run(
+            ["timedatectl", "show", "--property=NTPSynchronized", "--value"],
+            capture_output=True, text=True,
+        )
+        if proc.stdout.strip() == "yes":
+            return
+        time.sleep(2)
+    info("› clock not synced by NTP; continuing with the hardware clock")
+
+
+def _wait_for_pacman_keyring(wait_seconds: int = KEYRING_WAIT_SECONDS) -> None:
+    """pacstrap verifies signatures against the LIVE keyring, which archiso's
+    pacman-init.service populates at boot. Starting the oneshot blocks until
+    it finishes, and returns at once if it already has (RemainAfterExit)."""
+    info("› waiting for the live pacman keyring")
+    try:
+        subprocess.run(
+            ["systemctl", "start", "pacman-init.service"],
+            check=True, timeout=wait_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"the live pacman keyring was not ready after {wait_seconds}s (pacman-init.service)"
+        ) from exc
 
 
 def _install_disk(ctx: InstallContext) -> str | None:
@@ -243,7 +348,10 @@ def arch_install_system(ctx: InstallContext) -> None:
         if config.mirror_config:
             installer.set_mirrors(mirror_handler, config.mirror_config, on_target=False)
 
-        _mount_offline_package_cache(ctx)
+        # A network install has no bundled packages to mount; pacstrap
+        # downloads into the target's cache instead.
+        if not _is_network_install(ctx):
+            _mount_offline_package_cache(ctx)
         _mask_mkinitcpio_pacman_hooks(ctx)
         try:
             info("› installing base system (mkinitcpio deferred to final Limine UKI build)")
@@ -303,7 +411,8 @@ def arch_install_system(ctx: InstallContext) -> None:
                 installer.add_additional_packages(["tailscale"])
         finally:
             _unmask_mkinitcpio_pacman_hooks(ctx)
-            _unmount_offline_package_cache(ctx)
+            if not _is_network_install(ctx):
+                _unmount_offline_package_cache(ctx)
 
         # Standard arch finishers.
         if config.timezone:
@@ -1007,8 +1116,9 @@ def _debug_run(ctx: InstallContext, cmd: list[str]) -> None:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Target setup phases:
-#  1. point the target at the offline pacman.conf
-#  2. bind-mount the offline mirror + /opt/packages into /mnt for target pacman
+#  1. point the target at the live pacman.conf (offline, or online plus
+#     omarchy-local on a network install)
+#  2. bind-mount that bundled repo + /opt/packages into /mnt for target pacman
 #     and bundled language runtimes
 #  3. arch-chroot as root → omarchy-apply-system --first-install
 #  4. arch-chroot as user → omarchy-provision-user --first-install
@@ -1020,8 +1130,9 @@ def _prepare_target_setup(ctx: InstallContext) -> None:
 
     shutil.copy("/etc/pacman.conf", str(ctx.target / "etc" / "pacman.conf"))
 
+    bundled_repo = LOCAL_REPO if _is_network_install(ctx) else OFFLINE_REPO
     bind_mounts = [
-        ("/var/cache/omarchy/mirror/offline", "/var/cache/omarchy/mirror/offline"),
+        (bundled_repo, bundled_repo),
         ("/opt/packages", "/opt/packages"),
     ]
     ctx.state.setdefault("bind_mounts", [])
