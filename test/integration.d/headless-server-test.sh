@@ -5,8 +5,9 @@
 # server profile: multi-user.target with tty1 autologin instead of a display
 # manager, a verbose boot with no Plymouth splash, SSH enabled and let through the firewall, the stock kernel (the
 # cidata config asks for linux-omarchy, which the server install coerces),
-# the CLI/dev core installed with no desktop stack, and the mise wrappers
-# ("delayed packages") resolving on first use.
+# the CLI/dev core installed with no desktop stack, packages installed from
+# the network (no offline mirror, ISO under the release size gate), and the
+# mise wrappers ("delayed packages") resolving on first use.
 #
 # Skips on a desktop base, so the default suite stays green for either ISO.
 
@@ -79,6 +80,18 @@ check "no desktop stack is installed" \
   ssh_guest "! pacman -Q hyprland && ! pacman -Q sddm && ! pacman -Q chromium"
 check "docker is enabled" \
   ssh_guest "systemctl is-enabled docker.socket"
+
+# --- network install ---
+
+# A headless ISO carries no offline mirror; pacstrap synced the channel's
+# online repos plus omarchy-local, and those databases stay in the target.
+stat -c %s "$ISO" >"$RUN_DIR/iso-size-bytes.txt"
+check "the ISO is under the 1.9 GB release gate" \
+  test "$(cat "$RUN_DIR/iso-size-bytes.txt")" -le 1900000000
+check "packages came from the online repos" \
+  ssh_guest "test -f /var/lib/pacman/sync/core.db && test -f /var/lib/pacman/sync/omarchy.db"
+check "nothing came from an offline mirror" \
+  ssh_guest "! test -e /var/lib/pacman/sync/offline.db"
 
 # --- delayed packages (mise wrappers) ---
 
