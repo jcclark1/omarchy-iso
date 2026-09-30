@@ -102,6 +102,8 @@ check "the installer's static connection reached the server" \
   ssh_sudo "test \$(stat -c %a /etc/NetworkManager/system-connections/omarchy-test-static.nmconnection) = 600"
 check "the static connection is active" \
   ssh_guest "nmcli -t -f NAME connection show --active | grep -qx omarchy-test-static"
+check "no cloud-init connection reached the server" \
+  ssh_sudo "! grep -rqs 'origin=cloud-init' /etc/NetworkManager/system-connections"
 
 # --- delayed packages (mise wrappers) ---
 

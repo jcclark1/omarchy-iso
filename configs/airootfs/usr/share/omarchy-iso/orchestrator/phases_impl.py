@@ -1267,7 +1267,10 @@ def _copy_network_connections(ctx: InstallContext, source: Path = LIVE_NM_CONNEC
     nmtui step, or *.nmconnection files on a cidata drive) to the installed
     server, which runs the same NetworkManager. A plain DHCP install has none:
     NetworkManager keeps its automatic wired connections in /run."""
-    connections = sorted(source.glob("*.nmconnection"))
+    connections = [
+        connection for connection in sorted(source.glob("*.nmconnection"))
+        if not _is_cloud_init_connection(connection)
+    ]
     if not connections:
         return
     info(f"› carrying {len(connections)} network connection(s) to the installed system")
@@ -1278,6 +1281,20 @@ def _copy_network_connections(ctx: InstallContext, source: Path = LIVE_NM_CONNEC
         destination = target / connection.name
         shutil.copyfile(connection, destination)
         destination.chmod(0o600)
+
+
+def _is_cloud_init_connection(path: Path) -> bool:
+    """cloud-init's fallback DHCP connection for the live system: MAC-bound and
+    high-priority, so carried over it would override the server's own network.
+    The build keeps cloud-init from writing one; this is the backstop."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    return any(
+        line.strip().replace(" ", "") == "org.freedesktop.NetworkManager.origin=cloud-init"
+        for line in text.splitlines()
+    )
 
 
 def run_system_finalizer(ctx: InstallContext) -> None:

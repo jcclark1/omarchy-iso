@@ -278,6 +278,20 @@ class CopyNetworkConnectionsTest(unittest.TestCase):
             self.assertEqual((copied / "lan.nmconnection").stat().st_mode & 0o777, 0o600)
             self.assertEqual(copied.stat().st_mode & 0o777, 0o700)
 
+    def test_cloud_init_connections_stay_behind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = Path(tmp) / "live"
+            live.mkdir()
+            (live / "lan.nmconnection").write_text("[connection]\nid=lan\n")
+            (live / "cloud-init-enp0s3.nmconnection").write_text(
+                "[connection]\nid=cloud-init enp0s3\nautoconnect-priority=120\n\n"
+                "[user]\norg.freedesktop.NetworkManager.origin=cloud-init\n"
+            )
+            target = Path(tmp) / "target"
+            phases_impl._copy_network_connections(mock.Mock(target=target), source=live)
+            copied = target / "etc/NetworkManager/system-connections"
+            self.assertEqual([p.name for p in copied.iterdir()], ["lan.nmconnection"])
+
     def test_dhcp_install_copies_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "target"

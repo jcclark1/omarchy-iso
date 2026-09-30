@@ -51,6 +51,17 @@ ln -sfn /usr/lib/systemd/system/NetworkManager.service "$live_units_dir/dbus-org
 ln -sfn /usr/lib/systemd/system/NetworkManager-dispatcher.service "$live_units_dir/dbus-org.freedesktop.nm-dispatcher.service"
 ln -sfn /usr/lib/systemd/system/NetworkManager-wait-online.service "$live_units_dir/network-online.target.wants/NetworkManager-wait-online.service"
 
+# releng's cloud-init reads the same cidata drive (it is the NoCloud label) and
+# writes a MAC-bound DHCP connection with a high autoconnect priority, which
+# would override the static IP or Wi-Fi a headless install is given, in the
+# installer and, once copied, on the server. Omarchy uses cidata only for its
+# own files, so keep cloud-init away from networking.
+mkdir -p "$build_cache_dir/airootfs/etc/cloud/cloud.cfg.d"
+cat >"$build_cache_dir/airootfs/etc/cloud/cloud.cfg.d/99-omarchy-no-network.cfg" <<'CLOUDCFG'
+network:
+  config: disabled
+CLOUDCFG
+
 online_pacman_conf="/configs/pacman-online-${OMARCHY_MIRROR}.conf"
 build_pacman_conf="$build_cache_dir/pacman-network-build.conf"
 live_pacman_conf="$build_cache_dir/airootfs/etc/pacman.conf"
