@@ -262,3 +262,25 @@ class NetworkInstallTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CopyNetworkConnectionsTest(unittest.TestCase):
+    def test_connections_reach_the_target_root_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = Path(tmp) / "live"
+            live.mkdir()
+            (live / "lan.nmconnection").write_text("[connection]\nid=lan\n")
+            (live / "notes.txt").write_text("not a connection")
+            target = Path(tmp) / "target"
+            phases_impl._copy_network_connections(mock.Mock(target=target), source=live)
+            copied = target / "etc/NetworkManager/system-connections"
+            self.assertEqual([p.name for p in copied.iterdir()], ["lan.nmconnection"])
+            self.assertEqual((copied / "lan.nmconnection").stat().st_mode & 0o777, 0o600)
+            self.assertEqual(copied.stat().st_mode & 0o777, 0o700)
+
+    def test_dhcp_install_copies_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target"
+            phases_impl._copy_network_connections(mock.Mock(target=target), source=Path(tmp) / "missing")
+            self.assertFalse((target / "etc").exists())
+

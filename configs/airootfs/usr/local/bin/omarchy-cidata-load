@@ -14,6 +14,10 @@
 # A `defer-provisioning` marker file stands in for user_credentials.json: deferred-provisioning
 # installs defer user creation to first boot, so imaging rigs ship no credentials.
 #
+# NetworkManager connection files (*.nmconnection) on the drive give a headless
+# install its network: static IP, Wi-Fi, VLANs. They load into the live
+# NetworkManager, and the orchestrator carries them to the installed server.
+#
 # The optional argument prefixes every path the script touches; tests use it to
 # run against a sandbox instead of the live system.
 
@@ -64,6 +68,16 @@ if [[ -f $mnt/user_configuration.json ]] && [[ -f $mnt/user_credentials.json || 
       rm -f "$dest/${file##*/}"
     done
   fi
+fi
+
+# NetworkManager refuses a connection file readable by anyone but root.
+if ((loaded == 0)) && compgen -G "$mnt/*.nmconnection" >/dev/null; then
+  connections=$root/etc/NetworkManager/system-connections
+  mkdir -p "$connections"
+  for file in "$mnt"/*.nmconnection; do
+    install -m 600 "$file" "$connections/${file##*/}"
+  done
+  nmcli connection reload 2>/dev/null || true
 fi
 
 umount "$mnt"

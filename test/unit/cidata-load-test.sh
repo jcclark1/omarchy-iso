@@ -42,6 +42,11 @@ device=$3 mountpoint=$4
 cp -a "$(readlink -f "$device")"/. "$mountpoint"/
 STUB
 
+cat >"$stub_dir/nmcli" <<'STUB'
+#!/bin/bash
+printf 'nmcli %s\n' "$*" >>"$TEST_LOG"
+STUB
+
 cat >"$stub_dir/umount" <<'STUB'
 #!/bin/bash
 printf 'umount %s\n' "$*" >>"$TEST_LOG"
@@ -96,6 +101,26 @@ for file in user_configuration.json user_credentials.json user_full_name.txt use
 done
 grep -q '^umount ' "$TEST_LOG" || fail "full file set unmounts the drive"
 pass "full file set loads, copies everything, and unmounts"
+
+# NetworkManager connection files load into the live NetworkManager, root-only.
+new_sandbox
+attach_drive cidata
+write_required_pair
+printf '[connection]\nid=lan\ntype=ethernet\n' >"$sandbox/media/lan.nmconnection"
+run_load || fail "drive with a connection file loads"
+connection="$sandbox/etc/NetworkManager/system-connections/lan.nmconnection"
+[[ -f $connection ]] || fail "connection file is installed"
+[[ $(stat -c %a "$connection") == 600 ]] || fail "connection file is mode 600"
+grep -q '^nmcli connection reload$' "$TEST_LOG" || fail "NetworkManager reloads connections"
+pass "connection files load into NetworkManager"
+
+# A drive that is not an autoinstall drive loads no connections either.
+new_sandbox
+attach_drive cidata
+printf '[connection]\nid=lan\n' >"$sandbox/media/lan.nmconnection"
+! run_load || fail "connection file alone is not an autoinstall drive"
+[[ ! -e $sandbox/etc/NetworkManager ]] || fail "connection file alone installs nothing"
+pass "connection files need an autoinstall drive"
 
 # The uppercase label variant some tools produce works too.
 new_sandbox

@@ -1259,9 +1259,31 @@ def _write_profile_marker(ctx: InstallContext) -> None:
     marker.write_text(ctx.profile + "\n")
 
 
+LIVE_NM_CONNECTIONS = Path("/etc/NetworkManager/system-connections")
+
+
+def _copy_network_connections(ctx: InstallContext, source: Path = LIVE_NM_CONNECTIONS) -> None:
+    """Carry the connections set up in the live installer (the configurator's
+    nmtui step, or *.nmconnection files on a cidata drive) to the installed
+    server, which runs the same NetworkManager. A plain DHCP install has none:
+    NetworkManager keeps its automatic wired connections in /run."""
+    connections = sorted(source.glob("*.nmconnection"))
+    if not connections:
+        return
+    info(f"› carrying {len(connections)} network connection(s) to the installed system")
+    target = ctx.target / "etc/NetworkManager/system-connections"
+    target.mkdir(parents=True, exist_ok=True)
+    target.chmod(0o700)
+    for connection in connections:
+        destination = target / connection.name
+        shutil.copyfile(connection, destination)
+        destination.chmod(0o600)
+
+
 def run_system_finalizer(ctx: InstallContext) -> None:
     if ctx.profile == "server":
         _write_profile_marker(ctx)
+        _copy_network_connections(ctx)
 
     if ctx.defer_provisioning:
         cmd = ["/usr/bin/omarchy-apply-system", "--defer-provisioning", "--first-install"]
