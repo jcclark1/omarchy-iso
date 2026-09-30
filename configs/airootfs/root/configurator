@@ -1030,6 +1030,93 @@ select_installation() {
   done
 }
 
+# NETWORK (server profile only)
+#
+# A headless ISO installs from the network. The live system runs NetworkManager,
+# the same stack as the installed server, so connections made in nmtui (Wi-Fi,
+# static IP, VLANs, bonds) are copied to the target unchanged by the
+# orchestrator. Runs after the keyboard step so passwords type under the right
+# layout.
+
+ISO_PROFILE_MARKER="${ISO_PROFILE_MARKER:-/usr/share/omarchy-iso/profile}"
+
+is_server_iso() {
+  [[ $(cat "$ISO_PROFILE_MARKER" 2>/dev/null) == "server" ]]
+}
+
+# The [core] database on the first online server in the live pacman.conf: the
+# same probe the orchestrator runs before pacstrap.
+core_db_url() {
+  awk '
+    /^\[/ { core = ($0 == "[core]") }
+    core && /^Server[[:space:]]*=[[:space:]]*https?:/ {
+      sub(/^Server[[:space:]]*=[[:space:]]*/, "")
+      gsub(/\$repo/, "core"); gsub(/\$arch/, "x86_64"); sub(/\/+$/, "")
+      print $0 "/core.db"; exit
+    }
+  ' "${PACMAN_CONF:-/etc/pacman.conf}"
+}
+
+network_online() {
+  local url
+  url=$(core_db_url)
+  [[ -n $url ]] && curl -fsSL --max-time 10 -o /dev/null "$url" 2>/dev/null
+}
+
+# "enp1s0 (ethernet) 192.168.1.20/24" for the device carrying the default route.
+network_summary() {
+  local device kind address
+  device=$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+  [[ -n $device ]] || return 0
+  kind=ethernet
+  [[ -d /sys/class/net/$device/wireless ]] && kind=Wi-Fi
+  address=$(ip -4 -brief address show dev "$device" 2>/dev/null | awk '{ print $3 }')
+  echo "$device ($kind) $address"
+}
+
+network_step() {
+  is_server_iso || return 0
+
+  local choice
+  # NetworkManager may still be bringing up wired DHCP this soon after boot.
+  notice "Checking the network" 1
+  nm-online -q -s -t 20 2>/dev/null || true
+
+  while true; do
+    if network_online; then
+      step "Network"
+      say "Connected: $(network_summary)"
+      say --foreground 8 "Set a static IP or Wi-Fi here to keep it on the installed server."
+      echo
+      choice=$(gum choose "Continue" "Configure network") || choice="Continue"
+    else
+      step "Network"
+      say "No connection to the package mirror. This installer downloads packages, so it needs a network."
+      echo
+      choice=$(gum choose "Set up network" "Retry" "Open a shell") || choice="Retry"
+    fi
+
+    case $choice in
+      Continue)
+        return 0
+        ;;
+      "Configure network" | "Set up network")
+        clear
+        nmtui || true
+        notice "Checking the network" 3
+        ;;
+      "Open a shell")
+        clear
+        echo "Type exit to return to the installer."
+        bash || true
+        ;;
+      *)
+        notice "Checking the network" 2
+        ;;
+    esac
+  done
+}
+
 # STEP 1: KEYBOARD (Ctrl+C here arms deferred provisioning and jumps to disk selection)
 
 defer_provisioning=false
@@ -1042,6 +1129,8 @@ wait_for_stable_terminal
 greeter
 
 keyboard_form
+
+network_step
 
 # Normal install: keyboard (loaded above, so the LUKS passphrase is typed under
 # the right layout) → user → disk → install mode. The user step can unwind to

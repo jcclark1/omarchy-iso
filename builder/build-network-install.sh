@@ -26,6 +26,31 @@ live_trim_packages=(
 trimmed_packages=$(grep -Fxv -f <(printf '%s\n' "${live_trim_packages[@]}") "$build_cache_dir/packages.x86_64")
 printf '%s\n' "$trimmed_packages" >"$build_cache_dir/packages.x86_64"
 
+# The live system runs NetworkManager instead of releng's systemd-networkd and
+# iwd: the same stack the installed server runs, so the configurator's network
+# step (nmtui) saves connections the orchestrator copies to the target as they
+# are. Wired DHCP still comes up on its own. Also drop the enable links of the
+# units trimmed above, which would otherwise dangle.
+printf '%s\n' networkmanager >>"$build_cache_dir/packages.x86_64"
+live_units_dir="$build_cache_dir/airootfs/etc/systemd/system"
+rm -f \
+  "$live_units_dir/multi-user.target.wants/systemd-networkd.service" \
+  "$live_units_dir/multi-user.target.wants/iwd.service" \
+  "$live_units_dir/sockets.target.wants/systemd-networkd.socket" \
+  "$live_units_dir/network-online.target.wants/systemd-networkd-wait-online.service" \
+  "$live_units_dir/dbus-org.freedesktop.network1.service" \
+  "$live_units_dir/multi-user.target.wants/ModemManager.service" \
+  "$live_units_dir/dbus-org.freedesktop.ModemManager1.service" \
+  "$live_units_dir/multi-user.target.wants/vboxservice.service" \
+  "$live_units_dir/multi-user.target.wants/vmtoolsd.service" \
+  "$live_units_dir/multi-user.target.wants/vmware-vmblock-fuse.service"
+rm -rf "$live_units_dir/systemd-networkd-wait-online.service.d"
+mkdir -p "$live_units_dir/multi-user.target.wants" "$live_units_dir/network-online.target.wants"
+ln -sfn /usr/lib/systemd/system/NetworkManager.service "$live_units_dir/multi-user.target.wants/NetworkManager.service"
+ln -sfn /usr/lib/systemd/system/NetworkManager.service "$live_units_dir/dbus-org.freedesktop.NetworkManager.service"
+ln -sfn /usr/lib/systemd/system/NetworkManager-dispatcher.service "$live_units_dir/dbus-org.freedesktop.nm-dispatcher.service"
+ln -sfn /usr/lib/systemd/system/NetworkManager-wait-online.service "$live_units_dir/network-online.target.wants/NetworkManager-wait-online.service"
+
 online_pacman_conf="/configs/pacman-online-${OMARCHY_MIRROR}.conf"
 build_pacman_conf="$build_cache_dir/pacman-network-build.conf"
 live_pacman_conf="$build_cache_dir/airootfs/etc/pacman.conf"
